@@ -1,8 +1,12 @@
 import logging
 from flask import Flask, jsonify
+from flask_cors import CORS
+from flask import Blueprint
 
-def create_app():
+def create_app(config_name='development'):
     app = Flask(__name__)
+    # Add this line to enable CORS
+    CORS(app)
     
     from app.config.config import ENV
     app.config.update(
@@ -21,8 +25,12 @@ def create_app():
     app.register_blueprint(roadmap_bp, url_prefix='/api')
     app.register_blueprint(content_bp, url_prefix='/api')
     
-    @app.route('/health', methods=['GET'])
+    health_bp = Blueprint('health', __name__)
+
+    @health_bp.route('/health', methods=['GET'])
     def health_check():
-        return jsonify({"status": "ok", "version": "1.0.0"}), 200
-    
+        return jsonify({"status": "ok", "message": "API is running"}), 200
+
+    app.register_blueprint(health_bp)
+
     return app

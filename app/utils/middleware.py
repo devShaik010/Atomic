@@ -12,7 +12,14 @@ def setup_middleware(app):
     @app.before_request
     def before_request():
         logger.info(f"Request: {request.method} {request.path} - {request.remote_addr}")
+        logger.debug(f"Request headers: {dict(request.headers)}")  # Log headers to debug
+        
         client_ip = request.remote_addr
+        # Add support for forwarded IP in case your app is behind a proxy
+        if request.headers.get('X-Forwarded-For'):
+            client_ip = request.headers.get('X-Forwarded-For')
+            logger.info(f"Using forwarded IP: {client_ip}")
+        
         current_time = time.time()
         
         for ip in list(request_timestamps.keys()):
