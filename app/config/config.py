@@ -5,6 +5,7 @@ load_dotenv()
 
 ENV = os.getenv('FLASK_ENV', 'development')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 
 GENERATION_CONFIG = {
     "temperature": 0.7,

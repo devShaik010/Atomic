@@ -21,9 +21,11 @@ def create_app(config_name='development'):
     
     from app.api.roadmap_generator import roadmap_bp
     from app.api.content_generator import content_bp
+    from app.api.quiz_generator import quiz_bp
     
     app.register_blueprint(roadmap_bp, url_prefix='/api')
     app.register_blueprint(content_bp, url_prefix='/api')
+    app.register_blueprint(quiz_bp, url_prefix='/api')
     
     health_bp = Blueprint('health', __name__)
 

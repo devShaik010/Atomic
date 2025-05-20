@@ -27,109 +27,61 @@ def retry_on_exception(max_retries=MAX_RETRIES, delay=RETRY_DELAY):
     return decorator
 
 def parse_ai_json(response_text):
-    """
-    Parse JSON from AI response with improved error handling and extraction
-    This function is designed to handle various edge cases in AI responses
-    """
+    """Parse the AI generated response as JSON, with improved handling for math content."""
     if not response_text:
-        logger.error("Empty response received from AI model")
-        raise ValueError("Empty response received from AI model")
-        
-    # Log the first 200 characters for debugging
-    logger.debug(f"Response text (excerpt): {response_text[:200]}...")
+        raise ValueError("Empty response from AI")
     
     try:
-        # First, try direct JSON parsing
+        # Try direct JSON parsing first
         return json.loads(response_text)
-    except json.JSONDecodeError:
-        # If direct parsing fails, try extraction and cleaning
-        pass
-    
-    # Try to extract JSON content from the response
-    json_pattern = r'```json\s*(.*?)\s*```|```\s*(.*?)\s*```|\{\s*"[^"]+"\s*:'
-    json_matches = re.findall(json_pattern, response_text, re.DOTALL)
-
-    extracted_text = None
-    if json_matches:
-        # Use the first match that contains valid JSON
-        for match_groups in json_matches:
-            for group in match_groups:
-                if group and group.strip():
-                    try:
-                        # Check if this looks like the start of a JSON object
-                        if group.strip().startswith('{'):
-                            extracted_text = group
-                            json.loads(extracted_text)
-                            break  # Found valid JSON
-                    except json.JSONDecodeError:
-                        continue  # Try next match
-            if extracted_text:
-                break
-    
-    if not extracted_text:
-        # No code blocks found, try to find JSON by looking for curly braces
-        try:
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}') + 1
-            if json_start >= 0 and json_end > json_start:
-                extracted_text = response_text[json_start:json_end]
-        except Exception as e:
-            logger.error(f"Error extracting JSON by braces: {str(e)}")
-    
-    if not extracted_text:
-        # If we still can't find JSON, use the original response
-        extracted_text = response_text
-
-    # Clean and fix common issues in the JSON text
-    try:
-        # Clean the text in case there are unicode or special characters
-        cleaned_text = extracted_text.strip()
-        
-        # Fix common code example issues - this is the critical part
-        # Look for code_example fields and ensure they're properly escaped
-        code_example_pattern = r'"code_example":\s*"(.*?)(?<!\\)"(?=,|\s*})'
-        
-        def fix_code_example(match):
-            code = match.group(1)
-            # Properly escape newlines, quotes and backslashes
-            escaped_code = (code
-                           .replace('\\', '\\\\')  # Escape backslashes first
-                           .replace('\n', '\\n')   # Escape newlines
-                           .replace('\r', '\\r')   # Escape carriage returns
-                           .replace('"', '\\"'))   # Escape quotes
-            return f'"code_example": "{escaped_code}"'
-        
-        cleaned_text = re.sub(code_example_pattern, fix_code_example, cleaned_text, flags=re.DOTALL)
-        
-        # Additional cleaning to fix other common JSON issues
-        # Fix trailing commas in arrays/objects
-        cleaned_text = re.sub(r',\s*}', r'}', cleaned_text)
-        cleaned_text = re.sub(r',\s*]', r']', cleaned_text)
-        
-        # Try to parse the cleaned JSON
-        result = json.loads(cleaned_text)
-        return result
     except json.JSONDecodeError as e:
-        # Log detailed error information for debugging
-        logger.error(f"JSON parsing error: {str(e)}")
-        logger.error(f"Response excerpt: {extracted_text[:500]}...")
-        logger.error(f"JSON error at position {e.pos}: {extracted_text[max(0, e.pos-20):e.pos+20]}")
+        # Log the position of the error
+        error_position = e.pos
+        error_context = response_text[max(0, error_position-50):min(len(response_text), error_position+50)]
+        logger.error(f"JSON error at position {error_position}: {error_context}")
         
-        # As a last resort, try to sanitize the JSON with a regex-based approach
+        # Special handling for math content - replace common math symbols that break JSON
+        sanitized_text = response_text
+        math_replacements = {
+            "\\": "\\\\",  # Escape backslashes
+            "\n": " ",     # Replace newlines with spaces
+            "≈": "approximately",
+            "∫": "integral",
+            "∑": "sum",
+            "∞": "infinity",
+            "≠": "!=",
+            "≤": "<=",
+            "≥": ">=",
+            "π": "pi",
+            "θ": "theta",
+            "λ": "lambda",
+            "α": "alpha",
+            "β": "beta",
+            "γ": "gamma",
+            "Δ": "Delta",
+            "δ": "delta",
+            "√": "sqrt"
+        }
+        
+        for symbol, replacement in math_replacements.items():
+            sanitized_text = sanitized_text.replace(symbol, replacement)
+        
         try:
-            # Find all code example fields and completely sanitize them
-            pattern = r'("code_example"\s*:\s*)".*?"'
-            cleaned_json = re.sub(pattern, r'\1"<code removed for stability>"', extracted_text)
+            return json.loads(sanitized_text)
+        except json.JSONDecodeError:
+            # If still failing, try more aggressive approach to extract JSON
+            try:
+                # Find what looks like the start and end of JSON
+                json_start = sanitized_text.find('{')
+                json_end = sanitized_text.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    extracted_json = sanitized_text[json_start:json_end]
+                    return json.loads(extracted_json)
+            except:
+                pass
             
-            # Try parsing again with sanitized code examples
-            result = json.loads(cleaned_json)
-            logger.info("Successfully parsed JSON after removing problematic code examples")
-            
-            return result
-        except Exception as sanitize_error:
-            logger.error(f"JSON sanitization failed: {str(sanitize_error)}")
-            
-        raise ValueError(f"Failed to parse AI response as JSON: {str(e)}")
+            logger.error(f"JSON sanitization failed: {str(e)}")
+            raise ValueError(f"Failed to parse AI response as JSON: {str(e)}")
 
 def validate_roadmap(roadmap):
     required_fields = ['course_title', 'description', 'level', 'duration', 'modules']
@@ -149,61 +101,24 @@ def validate_roadmap(roadmap):
     return True, ""
 
 def validate_tutorial_content(content):
-    # Check all required fields
-    required_fields = {
-        'title': str,
-        'level': str,
-        'estimated_time': str,
-        'overview': str,
-        'prerequisites': list,
-        'sections': list,
-        'practice_exercises': list,
-        'additional_resources': list
-    }
+    """Validates the tutorial content structure with relaxed requirements."""
+    if not content or not isinstance(content, dict):
+        return False, "Invalid or empty content"
     
-    for field, expected_type in required_fields.items():
+    required_fields = ['title', 'estimated_time', 'overview', 'sections', 
+                      'practice_exercises', 'additional_resources']
+    
+    # 'about' and 'level' are optional - we'll add them if missing
+    for field in required_fields:
         if field not in content:
             return False, f"Missing required field: {field}"
-        if not isinstance(content[field], expected_type):
-            return False, f"Field '{field}' must be of type {expected_type.__name__}"
     
-    # Validate minimum array lengths
-    if len(content['prerequisites']) < 1:
-        return False, "Must have at least 1 prerequisite"
+    # Validate sections structure
+    if not isinstance(content['sections'], list) or not content['sections']:
+        return False, "Sections must be a non-empty list"
     
-    if len(content['sections']) < 2:
-        return False, "Must have at least 2 sections"
-    
-    if len(content['practice_exercises']) < 1:
-        return False, "Must have at least 1 practice exercise"
-    
-    if len(content['additional_resources']) < 1:
-        return False, "Must have at least 1 additional resource"
-    
-    # Validate section structure
     for section in content['sections']:
-        if not isinstance(section, dict):
-            return False, "Each section must be an object"
-        
-        for field in ['section_title', 'content']:
-            if field not in section:
-                return False, f"Section missing required field: {field}"
-            if not isinstance(section[field], str):
-                return False, f"Section field '{field}' must be a string"
-        
-        # Make code_example optional
-        if 'code_example' in section and not isinstance(section['code_example'], str):
-            return False, "Section field 'code_example' must be a string"
+        if not isinstance(section, dict) or 'section_title' not in section or 'content' not in section:
+            return False, "Each section must contain section_title and content"
     
-    # Validate additional resources structure
-    for resource in content['additional_resources']:
-        if not isinstance(resource, dict):
-            return False, "Each resource must be an object"
-        
-        for field in ['title', 'url']:
-            if field not in resource:
-                return False, f"Resource missing required field: {field}"
-            if not isinstance(resource[field], str):
-                return False, f"Resource field '{field}' must be a string"
-    
-    return True, ""
+    return True, "Valid content"

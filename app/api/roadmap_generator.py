@@ -26,7 +26,7 @@ def generate_roadmap():
             
         course_title = data['course_title'].strip()
         level = data['level'].strip()
-        
+
         logger.info(f"Generating roadmap for course: '{course_title}', level: '{level}'")
         
         prompt = f"""
